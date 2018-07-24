@@ -1,0 +1,467 @@
+## Reclustering of allcellsallpts_base to check for celltypes in non-separated files
+# In separate CD4 and CD8 files cells seem to separate in 
+# Load file with only patient NOT tissue regressed out
+load(file = "/Users/festeneam/Artikelen/ScRNAseq/src/allcells_allptsextraextraregress_PCA_121217.Robj")
+# Load file with dissoc profile taken ou:
+load(file = "/Users/festeneam/Artikelen/ScRNAseq/src/allcells_allptsextra_raw_mindissoc.Robj")
+#allcellsallpts_base = allcellsallptsextra
+allcellsallpts_base = allcellsallptsextra
+allcellsallpts_base <- UpdateSeuratObject(allcellsallpts_base)
+
+
+phenodata20 <- read.table("/Users/festeneam/Artikelen/ScRNAseq/CD45RO.txt", header = F, row.names = 1)
+phenodata20 <- as.matrix(phenodata20)
+phenodata21 <- read.table("/Users/festeneam/Artikelen/ScRNAseq/SSC.txt", header = F, row.names = 1)
+phenodata21 <- as.matrix(phenodata21)
+phenodata22 <- read.table("/Users/festeneam/Artikelen/ScRNAseq/TCRab.txt", header = F, row.names = 1)
+phenodata22 <- as.matrix(phenodata22)
+phenodata23 <- read.table("/Users/festeneam/Artikelen/ScRNAseq/PECY7.txt", header = F, row.names = 1)
+phenodata23 <- as.matrix(phenodata23)
+phenodata24 <- read.table("/Users/festeneam/Artikelen/ScRNAseq/PI.txt", header = F, row.names = 1)
+phenodata24 <- as.matrix(phenodata24)
+phenodata25 <- read.table("/Users/festeneam/Artikelen/ScRNAseq/CD62L.txt", header = F, row.names = 1)
+phenodata25 <- as.matrix(phenodata25)
+phenodata26 <- read.table("/Users/festeneam/Artikelen/ScRNAseq/CD8ab.txt", header = F, row.names = 1)
+phenodata26 <- as.matrix(phenodata26)
+phenodata27 <- read.table("/Users/festeneam/Artikelen/ScRNAseq/CD3.txt", header = F, row.names = 1)
+phenodata27 <- as.matrix(phenodata27)
+
+allcellsallpts_base <- AddMetaData(allcellsallpts_base, phenodata20, "CD45RO")
+allcellsallpts_base <- AddMetaData(allcellsallpts_base, phenodata21, "SSC")
+allcellsallpts_base <- AddMetaData(allcellsallpts_base, phenodata22, "TCRab")
+allcellsallpts_base <- AddMetaData(allcellsallpts_base, phenodata23, "PECY7")
+allcellsallpts_base <- AddMetaData(allcellsallpts_base, phenodata24, "PI")
+allcellsallpts_base <- AddMetaData(allcellsallpts_base, phenodata25, "CD62L")
+allcellsallpts_base <- AddMetaData(allcellsallpts_base, phenodata26, "CD8ab")
+allcellsallpts_base <- AddMetaData(allcellsallpts_base, phenodata27, "CD19")
+
+# Batch Effect Correction
+# Correct for covariates nUMI, patient and percentage of mito reads 
+allcells_allpts_baseregress <- ScaleData(allcellsallpts_base, vars.to.regress = c("nUMI", 
+                                                       "percent.mito","patient"))
+
+# Calculate 40 PCs
+allcells_allpts_baseregress = RunPCA(allcells_allpts_baseregress,pc.genes = rownames(allcells_allpts_baseregress@data),pcs.compute = 40)
+# Run ProjectPCA
+allcells_allpts_baseregress = ProjectPCA(allcells_allpts_baseregress, do.print = T)
+## Run Jackstraw
+#allcells_allpts_baseregress = JackStraw(allcells_allpts_baseregress, num.replicate = 5, do.print = T)
+
+# Recalculate clusters
+allcells_allpts_baseregress = FindClusters(allcells_allpts_baseregress, dims.use = 1:20,force.recalc=T, 
+                                         resolution = 0.6, print.output = 0, save.SNN = T)
+# Recluster: name_dimsused_res
+allcellsallpts_base_40_06 = FindClusters(allcells_allpts_baseregress, dims.use = 1:40, 
+                                  resolution = 0.6, print.output = 0, save.SNN = T)
+
+# Rerun tsne to fit the clustering
+allcellsallpts_base_40_06 = RunTSNE(allcellsallpts_base_40_06,dims.use = 1:37, do.fast = T)
+
+#Identify cytotoxic
+FeaturePlot(allcellsallpts_base_40_06, features.plot = c("TNFRSF4", "FOXP3"), do.hover = T,
+            overlay = T, cols.use = c("grey","deeppink", "purple", "orange"), data.hover = 
+              c("ident","PC1","res.0.6"),no.legend = FALSE )
+
+
+allcellsallpts_base_40_06_markers = FindAllMarkers(allcellsallpts_base_40_06, only.pos = TRUE,
+                                         min.diff.pct = 0.05, min.pct = 0.05, thresh.use = 0.25)
+
+write.table(allcellsallpts_base_40_06_markers, 
+  file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allcellsallpts_base_40_06_markers120218")
+
+# Distinguish cluster 3 and 4 and 0
+clust3.markers=FindMarkers(allcellsallpts_base_40_06, ident.1 = 4, ident.2 = 3,
+                           only.pos = T)
+head(clust3.markers,200)
+
+# Combine cluster 3 and 4 in separate file
+allcellsallpts_base_comb = RenameIdent(allcellsallpts_base_40_06,old.ident.name = "3",
+                                                                     new.ident.name = "4")
+
+# Identify cluster 4
+clust4.markers = FindMarkers(allcellsallpts_base_comb, ident.1 = 4, only.pos = T)
+head(clust4.markers,200)
+
+# Identify celltypes in LPL
+allcellsallpts_base_40_06@meta.data$tissue2 = as.numeric(allcellsallpts_base_40_06@meta.data$tissue)
+
+## Rename clusters with weird names according to their markergenes
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "0",
+                                         new.ident.name = "quiescent")
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "1",
+                                         new.ident.name = "Th17 and Th-other")
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "2",
+                                         new.ident.name = "EMC and CTL")
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "3",
+                                         new.ident.name = "Treg and quiescent")
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "4",
+                                         new.ident.name = "Treg and effector")
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "5",
+                                         new.ident.name = "Cytotoxic")
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "6",
+                                         new.ident.name = "EMC")
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "7",
+                                         new.ident.name = "Th1/Th2")
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "8",
+                                         new.ident.name = "Th")
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "9",
+                                         new.ident.name = "Effector memory cell")
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "10",
+                                         new.ident.name = "Treg?")
+allcellsallpts_base_40_06 <- RenameIdent(allcellsallpts_base_40_06, old.ident.name = "11",
+                                         new.ident.name = "EMC-CTL?")
+# Stash renamed identities for later
+allcellsallpts_base_40_06 <- StashIdent(allcellsallpts_base_40_06, save.name = "raw_ident")
+
+save(allcellsallpts_base_40_06, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allcellsalllpts_clust4006_121217.Robj")
+#write away metadata
+write.csv(allcellsallpts_base_40_06@meta.data, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allcellsalllpts_cluster_metadata_281117.csv")
+
+## Split between blood and mucosa
+# make numeric tissue
+allcellsallpts_base_40_06@meta.data$tissue2 = as.numeric(allcellsallpts_base_40_06@meta.data$tissue)
+
+allpts_blood = SubsetData(allcellsallpts_base_40_06, subset.name = "tissue2", accept.high = 2)
+allpts_mucosa = SubsetData(allcellsallpts_base_40_06, subset.name = "tissue2", accept.low = 1)
+
+# Recluster blood
+allpts_blood = ProjectPCA(allpts_blood, pcs.store = 40)
+allpts_blood = FindClusters(allpts_blood, dims.use = 1:40, force.recalc = T,
+                            resolution = 0.6, print.output = 0, save.SNN = T)
+
+# Rerun tsne to fit the clustering
+allpts_blood = RunTSNE(allpts_blood,dims.use = 1:28, do.fast = T)
+allpts_blood_markers = FindAllMarkers(allpts_blood, only.pos = TRUE,
+                          min.diff.pct = 0.05, min.pct = 0.05, thresh.use = 0.25)
+write.table(allpts_blood_markers, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/blood40_06_markers150218.txt")
+
+
+FeaturePlot(allpts_blood, features.plot = c("CCR7", "SELL"), do.hover = T,
+            overlay = T, cols.use = c("grey","deeppink", "purple", "orange"), data.hover = 
+              c("ident","PC1","res.0.6"),no.legend = FALSE )
+
+## Rename easy clusters 
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "0",
+                                         new.ident.name = "activatedt/Treg")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "1",
+                                         new.ident.name = "quiescent")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "2",
+                                         new.ident.name = "EMC")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "3",
+                                         new.ident.name = "meh")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "4",
+                                         new.ident.name = "cytotoxic")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "5",
+                                         new.ident.name = "mehh")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "6",
+                                         new.ident.name = "EMC")
+
+
+
+
+## Combine cluster 0 and 2 (seem Treg)
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "2",
+                            new.ident.name = "0")
+## markers cluster 0?
+clust0.markers=FindMarkers(allpts_blood, ident.1 = "0",
+                           only.pos = T)
+head(clust0.markers,200)
+
+# Rename cluster 0 Tregs
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "0",
+                            new.ident.name = "Treg")
+
+# Rename cluster 3 quiescent
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "3",
+                            new.ident.name = "quiescent")
+
+## markers cluster quiescent?
+clust1.markers=FindMarkers(allpts_blood, ident.1 = "quiescent",
+                           only.pos = T)
+head(clust1.markers,200)
+
+# Rename cluster 5 quiescent
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "5",
+                            new.ident.name = "quiescent")
+
+# Rename cluster 6 Treg
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "6",
+                            new.ident.name = "Treg")
+# Stash renamed identities for later
+allpts_blood <- StashIdent(allpts_blood, save.name = "blood_ident2")
+
+save(allpts_blood, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allpts_blood4006_121217.Robj")
+load("/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allpts_blood4006_121217.Robj")
+#write away metadata
+write.csv(allpts_blood@meta.data, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allpts_blood_cluster_metadata_121217_2.csv")
+
+
+# Recluster blood
+allpts_blood = ProjectPCA(allpts_blood, pcs.store = 40)
+allpts_blood = FindClusters(allpts_blood, dims.use = 2:30, force.recalc = T,
+                            resolution = 0.8, print.output = 0, save.SNN = T)
+
+# Rerun tsne to fit the clustering
+allpts_blood = RunTSNE(allpts_blood,dims.use = 1:28, do.fast = T)
+allpts_blood_markers = FindAllMarkers(allpts_blood, only.pos = TRUE,
+                                      min.diff.pct = 0.05, min.pct = 0.05, thresh.use = 0.25)
+write.table(allpts_blood_markers, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/blood30_08_markers_2")
+
+
+FeaturePlot(allpts_blood, features.plot = c("ID2", "ID3"), do.hover = T,
+            overlay = T, cols.use = c("grey","deeppink", "purple", "orange"), data.hover = 
+              c("ident","PC1","res.0.6"),no.legend = FALSE )
+
+## Rename easy clusters 
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "2",
+                            new.ident.name = "quiescent")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "5",
+                            new.ident.name = "cytotoxic")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "0",
+                            new.ident.name = "Treg/EMC/Th")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "1",
+                            new.ident.name = "EMC")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "3",
+                            new.ident.name = "quiescent")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "4",
+                            new.ident.name = "quiescent")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "6",
+                            new.ident.name = "Th1_2")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "7",
+                            new.ident.name = "EMC")
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "8",
+                            new.ident.name = "quiescent")
+
+## Combine cluster 0 and 2 (seem Treg)
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "2",
+                            new.ident.name = "0")
+## markers cluster EMC?
+clust0.markers=FindMarkers(allpts_blood, ident.1 = "EMC",
+                           only.pos = T)
+head(clust0.markers,200)
+
+# Rename cluster 0 Tregs
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "0",
+                            new.ident.name = "Treg")
+
+# Rename cluster 3 quiescent
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "3",
+                            new.ident.name = "quiescent")
+
+## markers cluster quiescent?
+clust1.markers=FindMarkers(allpts_blood, ident.1 = "quiescent",
+                           only.pos = T)
+head(clust1.markers,200)
+
+# Rename cluster 5 quiescent
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "5",
+                            new.ident.name = "quiescent")
+
+# Rename cluster 6 Treg
+allpts_blood <- RenameIdent(allpts_blood, old.ident.name = "6",
+                            new.ident.name = "Treg")
+# Stash renamed identities for later
+allpts_blood <- StashIdent(allpts_blood, save.name = "blood_ident2")
+
+save(allpts_blood, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allpts_blood3008_2.Robj")
+load("/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allpts_blood3008_2.Robj")
+#write away metadata
+write.csv(allpts_blood@meta.data, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allpts_blood_cluster_metadata4006_121217.csv")
+
+# Recluster mucosa
+allpts_mucosa = ProjectPCA(allpts_mucosa, pcs.store = 40)
+allpts_mucosa = FindClusters(allpts_mucosa, dims.use = 1:40, force.recalc = T,
+                            resolution = 0.6, print.output = 0, save.SNN = T)
+
+# Rerun tsne to fit the clustering
+allpts_mucosa = RunTSNE(allpts_mucosa,dims.use = 1:28, do.fast = T)
+allpts_mucosa_markers = FindAllMarkers(allpts_mucosa, only.pos = TRUE,
+                                      min.diff.pct = 0.05, min.pct = 0.05, thresh.use = 0.25)
+write.table(allpts_mucosa_markers, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/mucosa40_06_markers140218_2")
+
+
+FeaturePlot(allpts_mucosa, features.plot = c("ID2", "ID3"), do.hover = T,
+            overlay = T, cols.use = c("grey","deeppink", "purple", "orange"), data.hover = 
+              c("ident","PC1","res.0.6"),no.legend = FALSE )
+
+## Rename easy clusters 
+allpts_mucosa <- RenameIdent(allpts_mucosa, old.ident.name = "0",
+                            new.ident.name = "cytotoxic")
+allpts_mucosa <- RenameIdent(allpts_mucosa, old.ident.name = "1",
+                            new.ident.name = "Th17")
+allpts_mucosa <- RenameIdent(allpts_mucosa, old.ident.name = "2",
+                             new.ident.name = "quiescent/Treg")
+allpts_mucosa <- RenameIdent(allpts_mucosa, old.ident.name = "3",
+                             new.ident.name = "EMC")
+allpts_mucosa <- RenameIdent(allpts_mucosa, old.ident.name = "4",
+                             new.ident.name = "Ths")
+
+
+## Combine cluster 4 and 2 (seem Treg)
+allpts_mucosa <- RenameIdent(allpts_mucosa, old.ident.name = "4",
+                            new.ident.name = "Th17/Th-other")
+
+## Combine cluster 5 and 2 (seem Treg)
+allpts_mucosa <- RenameIdent(allpts_mucosa, old.ident.name = "5",
+                             new.ident.name = "quiescent")
+
+## markers cluster 3?
+clust3.markers=FindMarkers(allpts_mucosa, ident.1 = "3",
+                           only.pos = T)
+head(clust3.markers,200)
+
+# Rename cluster 3 cytotoxic
+allpts_mucosa <- RenameIdent(allpts_mucosa, old.ident.name = "3",
+                            new.ident.name = "cytotoxic")
+
+
+# Stash renamed identities for later
+allpts_mucosa <- StashIdent(allpts_mucosa, save.name = "mucosa_ident_2")
+
+save(allpts_mucosa, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allpts_mucosa4006.Robj")
+load("/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allpts_mucosa4006.Robj")
+#write away metadata
+write.csv(allpts_mucosa@meta.data, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allpts_mucosa_cluster_metadata_121217_2.csv")
+
+phenodata28 <- read.table("/Users/festeneam/Artikelen/ScRNAseq/ident_corresponding051217.txt", header = F, row.names = 1)
+phenodata28 <- as.matrix(phenodata28)
+
+allcellsallpts_base <- AddMetaData(allcellsallpts_base, phenodata28, "corresponding_ident2")
+allcellsallpts_base_40_06 <- AddMetaData(allcellsallpts_base_40_06, phenodata28, "corresponding_ident")
+allpts_blood <- AddMetaData(allpts_blood, phenodata28, "corresponding_ident")
+allpts_mucosa <- AddMetaData(allpts_mucosa, phenodata28, "corresponding_ident")
+
+phenodata29 <- read.table("/Users/festeneam/Artikelen/ScRNAseq/ident_corresponding131217.txt", header = F, row.names = 1)
+phenodata29 <- as.matrix(phenodata29)
+
+allcellsallpts_base <- AddMetaData(allcellsallpts_base, phenodata29, "Middle_road_ident")
+allcellsallpts_base_40_06 <- AddMetaData(allcellsallpts_base_40_06, phenodata29, "Middle_road_ident")
+allpts_blood <- AddMetaData(allpts_blood, phenodata29, "Middle_road_ident")
+allpts_mucosa <- AddMetaData(allpts_mucosa, phenodata29, "Middle_road_ident")
+
+## markers cluster Th17/Treg?
+clustTh17.markers=FindMarkers(allcellsallpts_base_40_06, ident.1 = "Th17/Treg",
+                           only.pos = T)
+head(clustTh17.markers,250)
+
+FeaturePlot(allcellsallpts_base, features.plot = c("CCR7", "NOG"), do.hover = T,
+            overlay = T, cols.use = c("grey","deeppink", "purple", "orange"), data.hover = 
+              c("ident","PC1","res.0.6"),no.legend = FALSE )
+
+## Pictures for results
+allpts_blood_4pict = allpts_blood
+allpts_mucosa_4pict = allpts_mucosa
+allcellsallpts_base_40_06_4pict = allcellsallpts_base_40_06
+
+# Rename subtypes
+phenodata30 <- read.csv("/Users/festeneam/Artikelen/ScRNAseq/Picture_pheno.txt", sep = "\t", header = F, row.names = 1)
+phenodata30 <- as.matrix(phenodata30)
+
+allpts_blood_4pict <- AddMetaData(allpts_blood_4pict, phenodata30, "Picture_pheno")
+allpts_mucosa_4pict <- AddMetaData(allpts_mucosa_4pict, phenodata30, "Picture_pheno")
+allcellsallpts_base_40_06_4pict <- AddMetaData(allcellsallpts_base_40_06_4pict, phenodata30,"Picture_pheno")
+
+## DE blood
+# Duplicate
+allpts_blood_DE = allpts_blood
+# Middle Road ident matrix
+allptsblood_mid_ident = as.data.frame(allpts_blood@meta.data)
+allptsblood_mid_ident$sample = rownames(allptsblood_mid_ident)
+allptsblood_mid_ident = subset(allptsblood_mid_ident, select = c("sample","Middle_road_ident"))
+allptsblood_mid_ident = as.matrix(allptsblood_mid_ident)
+allptsblood_mid_ident = allptsblood_mid_ident[,-1]
+allptsblood_mid_ident = as.factor(allptsblood_mid_ident)
+allpts_blood_DE@ident = allptsblood_mid_ident
+# DE 1% MAST
+allpts_blood_DE_markers = FindAllMarkers(allpts_blood_DE, min.pct = 0.01, only.pos = T, test.use = "MAST")
+write.table(allpts_blood_DE_markers, file = "/Users/festeneam/Artikelen/ScRNAseq/allptsblood_DEmarkers_1perc_MAST_7.txt")
+# DE 10% MAST
+allpts_blood_DE_markers = FindAllMarkers(allpts_blood_DE, min.pct = 0.1, only.pos = T, test.use = "MAST")
+write.table(allpts_blood_DE_markers, file = "/Users/festeneam/Artikelen/ScRNAseq/allptsblood_DEmarkers_10perc.txt")
+
+allpts_blood_DE <- RenameIdent(allpts_blood_DE, old.ident.name = "CTL/EMC/Th17",
+                             new.ident.name = "Cytotoxic")
+
+allpts_blood_DE <- RenameIdent(allpts_blood_DE, old.ident.name = "EMC",
+                               new.ident.name = "Cytotoxic")
+
+allpts_blood_DE <- RenameIdent(allpts_blood_DE, old.ident.name = "Treg",
+                               new.ident.name = "Activated T/Treg")
+
+allpts_blood_DE = RunTSNE(allpts_blood_DE, dims.use = 1:31, do.fast = T)
+allpts_blood_DE <- StashIdent(allpts_blood_DE, save.name = "blood_ident_4")
+write.csv(allpts_blood_DE@meta.data, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allpts_blood_DE_cluster_metadata.csv")
+
+load(file = "/Users/festeneam/Artikelen/ScRNAseq/src/allpts_blood_DE_4TSNE.Robj")
+
+### DE mucosa
+# Duplicate the Seurat file, because this might get messy (replacing the "ident" slot)
+allpts_mucosa_DE = allpts_mucosa
+## Put "Middle Road ident" matrix (per cell identity based on three comparison steps) as "ident", Middle Road Ident is in the meta data as a column
+# Make meta-data a separate matrix
+allptsmucosa_mid_ident = as.data.frame(allpts_mucosa@meta.data)
+# Make sample IDs row names 
+allptsmucosa_mid_ident$sample = rownames(allptsmucosa_mid_ident)
+# Subset sample ID and the column to be used as "ident"
+allptsmucosa_mid_ident = subset(allptsmucosa_mid_ident, select = c("sample","Middle_road_ident"))
+# Convert to class matrix
+allptsmucosa_mid_ident = as.matrix(allptsmucosa_mid_ident)
+# Remove first column
+allptsmucosa_mid_ident = allptsmucosa_mid_ident[,-1]
+# Convert to class factor
+allptsmucosa_mid_ident = as.factor(allptsmucosa_mid_ident)
+# Replace the @ident slot with the identity "factor" you have just created
+allpts_mucosa_DE@ident = allptsmucosa_mid_ident
+# DE with genes >1%, MAST
+allpts_mucosa_DE_markers = FindAllMarkers(allpts_mucosa_DE, min.pct = 0.01, only.pos = T, test.use = "MAST")
+write.table(allpts_mucosa_DE_markers, file = "/Users/festeneam/Artikelen/ScRNAseq/allptsmucosa_DEmarkers_1percMAST_7.txt")
+
+# DE with genes >10%, MAST
+allpts_mucosa_DE_markers = FindAllMarkers(allpts_mucosa_DE, min.pct = 0.1, only.pos = T, test.use = "MAST")
+write.table(allpts_mucosa_DE_markers, file = "/Users/festeneam/Artikelen/ScRNAseq/allptsmucosa_DEmarkers_10percMAST.txt")
+
+allpts_mucosa_DE <- RenameIdent(allpts_mucosa_DE, old.ident.name = "Treg/Quiescent",
+                               new.ident.name = "Treg cells")
+
+allpts_mucosa_DE <- RenameIdent(allpts_mucosa_DE, old.ident.name = "REG1A_REG1B",
+                               new.ident.name = "REG1A/B")
+
+allpts_mucosa_DE <- RenameIdent(allpts_mucosa_DE, old.ident.name = "Th17",
+                                new.ident.name = "Th17 cells")
+
+allpts_mucosa_DE <- RenameIdent(allpts_mucosa_DE, old.ident.name = "Ths",
+                                new.ident.name = "Treg/Quiescent")
+
+allpts_mucosa_DE <- RenameIdent(allpts_mucosa_DE, old.ident.name = "Cytotoxic",
+                                new.ident.name = "Cytotoxic cells")
+
+allpts_mucosa_DE = RunTSNE(allpts_mucosa_DE, dims.use = 1:30, do.fast = T)
+TSNEPlot(allpts_mucosa_DE, do.label = T, colors.use = c("#E95985","#940041","#007556","#00C8A1"), 
+         pt.size = 1.3)
+
+allpts_blood_DE = RunTSNE(allpts_blood_DE, dims.use = 1:31, do.fast = T)
+TSNEPlot(allpts_blood_DE, do.label = T, colors.use = c("firebrick2","palegreen3","steelblue3"))
+
+FeaturePlot(allpts_blood_DE, features.plot = c("PTPN13", "TNFRSF25"), do.hover = T,
+            overlay = T, cols.use = c("grey","deeppink", "purple", "orange"), data.hover = 
+              c("ident","PC1","res.0.6"),no.legend = FALSE )
+
+allpts_mucosa_DE <- StashIdent(allpts_mucosa_DE, save.name = "mucosa_ident_4")
+write.csv(allpts_mucosa_DE@meta.data, file = "/Users/festeneam/Artikelen/ScRNAseq/run02/allcellsallptsextra/FinalCluster/subcluster/allpts_mucosa_DE_cluster_metadata.csv")
+
+save(allpts_mucosa_DE, file = "/Users/festeneam/Artikelen/ScRNAseq/src/allpts_mucosa_DE.Robj")
+
+## DE allcells
+# Duplicate
+allcellsallpts_base_DE = allcellsallpts_base_40_06
+# Middle Road ident matrix
+allcellsallpts_ident = as.data.frame(allcellsallpts_base_40_06@meta.data)
+allcellsallpts_ident$sample = rownames(allcellsallpts_ident)
+allcellsallpts_ident = subset(allcellsallpts_ident, select = c("sample","Middle_road_ident"))
+allcellsallpts_ident = as.matrix(allcellsallpts_ident)
+allcellsallpts_ident = allcellsallpts_ident[,-1]
+allcellsallpts_ident = as.factor(allcellsallpts_ident)
+allcellsallpts_base_DE@ident = allcellsallpts_ident
+# DE 1% MAST
+allcellsallpts_base_DE_markers = FindAllMarkers(allcellsallpts_base_DE, min.pct = 0.01, only.pos = T, test.use = "MAST")
+write.table(allcellsallpts_base_DE, file = "/Users/festeneam/Artikelen/ScRNAseq/allcellsallpts_base_DEmarkers_1perc_MAST_7.txt")
